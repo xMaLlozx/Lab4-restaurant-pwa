@@ -1,0 +1,518 @@
+openapi: 3.0.3
+info:
+  title: Restaurant PWA API
+  description: |
+    REST API для приложения доставки еды из ресторана.
+    Авторизация — Laravel Sanctum (Bearer token).
+    OAuth через Google, GitHub, VK.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@restaurant.local
+
+servers:
+  - url: http://localhost:8000/api
+    description: Локальный сервер разработки
+
+components:
+  securitySchemes:
+    sanctum:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Category:
+      type: object
+      properties:
+        id:         { type: integer, example: 1 }
+        name:       { type: string,  example: "Пицца" }
+        slug:       { type: string,  example: "pizza" }
+        image:      { type: string,  nullable: true }
+
+    Product:
+      type: object
+      properties:
+        id:           { type: integer, example: 1 }
+        name:         { type: string,  example: "Маргарита" }
+        description:  { type: string,  example: "Классическая пицца" }
+        price:        { type: number,  example: 590 }
+        image:        { type: string,  nullable: true }
+        weight:       { type: integer, example: 450 }
+        calories:     { type: integer, example: 900 }
+        is_available: { type: boolean, example: true }
+        category:     { $ref: '#/components/schemas/Category' }
+
+    CartItem:
+      type: object
+      properties:
+        id:       { type: integer, example: 1 }
+        quantity: { type: integer, example: 2 }
+        subtotal: { type: number,  example: 1180 }
+        product:  { $ref: '#/components/schemas/Product' }
+
+    Order:
+      type: object
+      properties:
+        id:             { type: integer, example: 1 }
+        status:         { type: string,  example: "pending" }
+        total:          { type: number,  example: 1770 }
+        address:        { type: string,  example: "ул. Ленина, 1" }
+        payment_method: { type: string,  example: "card" }
+        comment:        { type: string,  nullable: true }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartItem' }
+        created_at: { type: string, format: date-time }
+
+    News:
+      type: object
+      properties:
+        id:           { type: integer, example: 1 }
+        title:        { type: string,  example: "Открытие нового зала" }
+        body:         { type: string,  example: "Рады сообщить..." }
+        image:        { type: string,  nullable: true }
+        published_at: { type: string, format: date-time }
+
+    User:
+      type: object
+      properties:
+        id:      { type: integer, example: 1 }
+        name:    { type: string,  example: "Иван Иванов" }
+        email:   { type: string,  example: "ivan@example.com" }
+        phone:   { type: string,  nullable: true }
+        address: { type: string,  nullable: true }
+        avatar:  { type: string,  nullable: true }
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string, example: "1|abc123..." }
+        user:  { $ref: '#/components/schemas/User' }
+
+    Error:
+      type: object
+      properties:
+        message: { type: string, example: "Ошибка" }
+
+    Pagination:
+      type: object
+      properties:
+        total:        { type: integer, example: 50 }
+        per_page:     { type: integer, example: 12 }
+        current_page: { type: integer, example: 1 }
+
+tags:
+  - name: Auth
+    description: Авторизация и регистрация
+  - name: Categories
+    description: Категории блюд
+  - name: Products
+    description: Блюда
+  - name: Cart
+    description: Корзина (требует авторизации)
+  - name: Orders
+    description: Заказы (требует авторизации)
+  - name: News
+    description: Новости ресторана
+  - name: User
+    description: Профиль пользователя
+  - name: Push
+    description: Push-уведомления
+
+paths:
+
+  /register:
+    post:
+      tags: [Auth]
+      summary: Регистрация
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:     { type: string, example: "Иван Иванов" }
+                email:    { type: string, example: "ivan@example.com" }
+                password: { type: string, example: "secret123" }
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '422':
+          description: Ошибка валидации
+
+  /login:
+    post:
+      tags: [Auth]
+      summary: Вход в систему
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string, example: "ivan@example.com" }
+                password: { type: string, example: "secret123" }
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401':
+          description: Неверные данные
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /logout:
+    post:
+      tags: [Auth]
+      summary: Выход из системы
+      security: [{ sanctum: [] }]
+      responses:
+        '200':
+          description: Выход выполнен
+
+  /auth/{provider}:
+    get:
+      tags: [Auth]
+      summary: OAuth редирект (google / github / vkontakte)
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [google, github, vkontakte] }
+      responses:
+        '302':
+          description: Редирект на провайдера
+
+  /categories:
+    get:
+      tags: [Categories]
+      summary: Список категорий
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Category' }
+
+  /categories/{id}:
+    get:
+      tags: [Categories]
+      summary: Категория по ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '404':
+          description: Не найдено
+
+  /products:
+    get:
+      tags: [Products]
+      summary: Список блюд
+      parameters:
+        - name: category_id
+          in: query
+          schema: { type: integer }
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+                  meta: { $ref: '#/components/schemas/Pagination' }
+
+  /products/{id}:
+    get:
+      tags: [Products]
+      summary: Блюдо по ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404':
+          description: Не найдено
+
+  /cart:
+    get:
+      tags: [Cart]
+      summary: Получить корзину
+      security: [{ sanctum: [] }]
+      responses:
+        '200':
+          description: Содержимое корзины
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CartItem' }
+    post:
+      tags: [Cart]
+      summary: Добавить в корзину
+      security: [{ sanctum: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity]
+              properties:
+                product_id: { type: integer, example: 1 }
+                quantity:   { type: integer, example: 2 }
+      responses:
+        '200':
+          description: Добавлено
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartItem' }
+    delete:
+      tags: [Cart]
+      summary: Очистить корзину
+      security: [{ sanctum: [] }]
+      responses:
+        '200':
+          description: Корзина очищена
+
+  /cart/{id}:
+    put:
+      tags: [Cart]
+      summary: Обновить количество
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: { type: integer, example: 3 }
+      responses:
+        '200':
+          description: Обновлено
+    delete:
+      tags: [Cart]
+      summary: Удалить позицию
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Удалено
+
+  /orders:
+    get:
+      tags: [Orders]
+      summary: Мои заказы
+      security: [{ sanctum: [] }]
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Order' }
+    post:
+      tags: [Orders]
+      summary: Создать заказ
+      security: [{ sanctum: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address, payment_method]
+              properties:
+                address:        { type: string, example: "ул. Ленина, 1" }
+                payment_method: { type: string, enum: [card, cash] }
+                comment:        { type: string, nullable: true }
+      responses:
+        '201':
+          description: Заказ создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400':
+          description: Корзина пуста
+
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Заказ по ID
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Данные заказа
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '403':
+          description: Доступ запрещён
+        '404':
+          description: Не найдено
+
+  /news:
+    get:
+      tags: [News]
+      summary: Список новостей
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/News' }
+
+  /news/{id}:
+    get:
+      tags: [News]
+      summary: Новость по ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/News' }
+        '404':
+          description: Не найдено
+
+  /user:
+    get:
+      tags: [User]
+      summary: Данные профиля
+      security: [{ sanctum: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+    put:
+      tags: [User]
+      summary: Обновить профиль
+      security: [{ sanctum: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:    { type: string }
+                phone:   { type: string }
+                address: { type: string }
+      responses:
+        '200':
+          description: Профиль обновлён
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /push/subscribe:
+    post:
+      tags: [Push]
+      summary: Подписаться на push-уведомления
+      security: [{ sanctum: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, keys]
+              properties:
+                endpoint: { type: string }
+                keys:
+                  type: object
+                  properties:
+                    p256dh: { type: string }
+                    auth:   { type: string }
+      responses:
+        '200':
+          description: Подписка сохранена
+
+  /push/send:
+    post:
+      tags: [Push]
+      summary: Отправить push-уведомление
+      security: [{ sanctum: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, body]
+              properties:
+                title: { type: string, example: "Ваш заказ принят!" }
+                body:  { type: string, example: "Ожидайте доставку через 30 минут" }
+      responses:
+        '200':
+          description: Уведомление отправлено
+        '404':
+          description: Нет активной подписки
